@@ -14,6 +14,19 @@ from .factors import compute_example_factors
 from .portfolio import build_portfolio_weights
 from .reporting import save_experiment_results
 from .signals import combine_factors_to_signal
+from .multi_strategy import (
+    BasicRiskManager,
+    ExecutionSimulator,
+    MultiFactorStrategy,
+    MultiStrategyPipeline,
+    PairTradingPlaceholderStrategy,
+    PortfolioConstructor,
+    Strategy,
+    StrategyCombiner,
+    StrategySignal,
+    TechnicalStrategy,
+    run_multistrategy_example,
+)
 
 __all__ = [
     "load_market_data",
@@ -30,4 +43,15 @@ __all__ = [
     "build_portfolio_weights",
     "backtest_strategy",
     "save_experiment_results",
+    "Strategy",
+    "StrategySignal",
+    "MultiFactorStrategy",
+    "TechnicalStrategy",
+    "PairTradingPlaceholderStrategy",
+    "StrategyCombiner",
+    "PortfolioConstructor",
+    "BasicRiskManager",
+    "ExecutionSimulator",
+    "MultiStrategyPipeline",
+    "run_multistrategy_example",
 ]
