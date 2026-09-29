@@ -225,21 +225,25 @@ asserts the bot's target weights match to within `1e-6`.
 
 **Synthetic validation harness** (deterministic, `seed=7`, 90 days of
 random-walk crypto, 30m bars, v1 params, 5 bps maker / 10 bps taker / 2 bps
-slip):
+slip). Reproduce with `python -c "from research import backtest; ..."` using
+`Params(bar_min=30, rebal_min=1440, use_fast=False, allow_short=False, ...)`:
 
 | Metric | Value |
 | --- | --- |
-| Total return | **+1.55%** over ~71 sample days |
-| Daily-annualised Sharpe | **0.60** |
-| Max drawdown | **−5.10%** |
-| Trades | 229 |
-| Final equity | 101,546 (from 100,000) |
+| Total return | **−1.79%** over ~71 sample days |
+| Daily-annualised Sharpe | **−0.62** |
+| Max drawdown | **−5.80%** |
+| Trades | 226 |
+| Final equity | 98,215 (from 100,000) |
 
 > These numbers come from the **synthetic** test harness, not the competition's
-> real market data, and are meant to demonstrate that the engine is
-> well-behaved (positive edge, contained drawdown, no blow-ups). They are **not**
-> a forecast of live performance. Real backtest results were produced by the
-> research team on historical Binance data and should be cited from that work.
+> real market data. They are meant to demonstrate that the engine is
+> well-behaved and **stable** — contained drawdown (≈6%), no blow-ups, sensible
+> trade count — on an independent random-walk price process. The synthetic
+> process is deliberately mean-zero, so a near-flat / slightly negative result is
+> expected and is **not** a forecast of live performance. Real backtest results
+> were produced by the research team on historical Binance data and should be
+> cited from that work; this bot ports that strategy unchanged.
 
 ---
 

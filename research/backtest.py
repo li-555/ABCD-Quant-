@@ -400,19 +400,26 @@ def run_backtest(P, real, sg, prm: Params, capital=100_000.0):
     net_arr = np.zeros(T)
     trades = []
 
-    def apply_caps(v):
+    def apply_caps(v, frozen, trad_mask):
+        # Cluster net/gross caps must account for positions that can't be traded
+        # this bar (frozen = carried-over weight on non-tradeable assets, e.g. a
+        # closed-market stock) -- otherwise a full cluster of frozen exposure is
+        # invisible to the cap and the *realized* portfolio can end up over cap.
         v = v.copy()
         for _ in range(3):
             v = np.clip(v, -prm.single_short, prm.single_long)
             for ix, cap in clusters:
-                net, gross = v[ix].sum(), np.abs(v[ix]).sum()
+                ix = np.asarray(ix)
+                tr = trad_mask[ix]
+                total = np.where(tr, v[ix], frozen[ix])
+                net, gross = total.sum(), np.abs(total).sum()
                 f = 1.0
                 if abs(net) > cap:
                     f = min(f, cap / abs(net))
                 if gross > 1.5 * cap:
                     f = min(f, 1.5 * cap / gross)
-                if f < 1:
-                    v[ix] *= f
+                if f < 1 and tr.any():
+                    v[ix[tr]] *= f
         return np.clip(v, -prm.single_short, prm.single_long)
 
     for t in range(start, T):
@@ -503,7 +510,7 @@ def run_backtest(P, real, sg, prm: Params, capital=100_000.0):
                     g_vol = min(1.0, prm.sigma_target / sp)
 
             tgt = g_vol * m_dd * (m_l * wl - prm.short_frac * m_s * ws)
-            tgt = apply_caps(tgt)
+            tgt = apply_caps(tgt, w, trad)
             frozen_g = float(np.abs(w[~trad]).sum())
             avail = max(prm.max_gross - frozen_g, 0.0)
             g = float(np.abs(tgt[trad]).sum())
@@ -628,6 +635,8 @@ def run_variant(name, args, data_cache):
             raw = load_raw_prices(args.universe, prm.bar_min, args.days, args.cache_dir, args.refresh)
         if args.start:
             raw = raw[raw.index >= pd.Timestamp(args.start, tz="UTC")]
+        if args.end:
+            raw = raw[raw.index <= pd.Timestamp(args.end, tz="UTC")]
         data_cache[prm.bar_min] = raw
     raw = data_cache[prm.bar_min]
     print(f"[data] {raw.shape[1]} assets, {raw.index[0]:%Y-%m-%d} -> {raw.index[-1]:%Y-%m-%d} ({(raw.index[-1]-raw.index[0]).days} days)")
@@ -638,9 +647,20 @@ def run_variant(name, args, data_cache):
     sg = build_signals(P, real, prm)
     res = run_backtest(P, real, sg, prm, capital=args.capital)
 
-    # equal-weight buy&hold benchmark over the same period
-    bench = (1 + P.pct_change().mean(axis=1).fillna(0)).cumprod()
-    bench = bench.reindex(res["equity"].index)
+    # true equal-weight buy&hold: buy once at the start of the backtest window
+    # (equal dollar amount per asset with a valid price at that bar), hold the
+    # resulting quantities unchanged for the rest of the period. This is NOT
+    # the same as rebalancing to equal weight every bar (which was the old,
+    # incorrect implementation here) -- a rebalanced-every-bar equal-weight
+    # index earns a "rebalancing premium" in choppy/dispersed baskets and so
+    # runs ahead of true buy&hold.
+    start_ts = res["equity"].index[0]
+    Pw = P.loc[start_ts:]
+    p0 = Pw.iloc[0]
+    assets0 = p0.index[p0.notna() & (p0 > 0)]
+    qty = (1.0 / len(assets0)) / p0[assets0]
+    bench = (Pw[assets0] * qty).sum(axis=1)
+    bench = bench.reindex(res["equity"].index).ffill()
     res["bench_ret"] = float(bench.iloc[-1] / bench.iloc[0] - 1)
     res["prm"] = prm
     return res
@@ -687,9 +707,12 @@ def summarize(name, res, args):
 def run_grid(args):
     import copy
     import itertools
+    if args.variant == "all":
+        sys.exit("--grid requires an explicit --variant (A, B, or C); "
+                 "it does not sweep A/B/C together. Re-run with e.g. --variant A --grid ...")
     keys = [g.split("=")[0] for g in args.grid]
     vals = [g.split("=")[1].split(",") for g in args.grid]
-    nm = "A" if args.variant == "all" else args.variant
+    nm = args.variant
     data_cache, rows = {}, []
     for combo in itertools.product(*vals):
         a = copy.copy(args)
@@ -716,6 +739,7 @@ def main(argv=None):
     ap.add_argument("--universe", default="all", choices=["all", "stocks", "crypto"])
     ap.add_argument("--days", type=int, default=90, help="history to fetch for coins")
     ap.add_argument("--start", default=None, help="trim data to start at YYYY-MM-DD (UTC)")
+    ap.add_argument("--end", default=None, help="trim data to end at YYYY-MM-DD (UTC), for split-sample tests")
     ap.add_argument("--synthetic", action="store_true", help="offline synthetic data smoke test")
     ap.add_argument("--refresh", action="store_true", help="ignore cached downloads")
     ap.add_argument("--cache-dir", default="cache")

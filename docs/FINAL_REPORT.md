@@ -72,7 +72,7 @@ README.md                        # bot deliverable doc (replaces old quant_resea
 ## 2. Test results (`pytest -q`)
 
 ```
-50 passed in 11.82s
+50 passed in 19.28s
 ```
 
 Coverage highlights:
@@ -174,16 +174,20 @@ fresher than 45 min) keep the bot alive across reboots/crashes.
 
 ## 6. Honest research overview (synthetic validation harness)
 
-Run with `research/backtest.py` v1 params on 90 days of deterministic
-random-walk crypto (30m bars, 5/10/2 bps cost model):
+Run with `research/backtest.py` v1 params (`bar_min=30, rebal_min=1440,
+use_fast=False, allow_short=False`, the confirmed parameter set) on 90 days of
+deterministic random-walk crypto (30m bars, 5/10/2 bps cost model). Reproduced
+on 2026-09-29 against the refreshed `research/backtest.py`:
 
 | Metric | Value |
 | --- | --- |
-| Total return | +1.55% (~71 sample days) |
-| Daily-annualised Sharpe | 0.60 |
-| Max drawdown | −5.10% |
-| Trades | 229 |
-| Final equity | 101,546 (from 100,000) |
+| Total return | −1.79% (~71 sample days) |
+| Daily-annualised Sharpe | −0.62 |
+| Max drawdown | −5.80% |
+| Trades | 226 |
+| Final equity | 98,215 (from 100,000) |
 
-These demonstrate the engine is well-behaved (positive edge, contained drawdown,
-no blow-ups) but are **not** a forecast of live performance on real data.
+The synthetic process is mean-zero by construction, so a near-flat / slightly
+negative result is expected and simply demonstrates the engine is **stable and
+contained** (≈6% drawdown, sensible trade count, no blow-ups). It is **not** a
+forecast of live performance on real data.
