@@ -102,26 +102,42 @@ Note: a repository-local git identity (`ABCD-Quant Bot <bot@abcd-quant.local>`)
 was set because none was configured; change it if the judges require a specific
 author.
 
-**Push status — BLOCKED (external):**
+**Push status — BLOCKED (external credentials, 2nd attempt):**
+
+Attempt on 2026-09-29 with the "newly permitted" account still returned the
+same 403 — the credential Git is actually using is **still `Yung-Ting-Kai`**,
+which is denied write access to `li-555/ABCD-Quant-`:
 
 ```
-$ git push origin HEAD:refs/heads/feat/roostoo-live-bot-v1
+$ git push -u origin feat/roostoo-live-bot-v1
 remote: Permission to li-555/ABCD-Quant-.git denied to Yung-Ting-Kai.
 fatal: unable to access 'https://github.com/li-555/ABCD-Quant-/':
        The requested URL returned error: 403
 ```
 
-The authenticated GitHub account does **not** have write access to
-`li-555/ABCD-Quant-`. This is a permissions/credentials issue on the remote and
-cannot be resolved from the agent. **Remedy (pick one):**
-1. Push from / authenticate as an account that has write access to the repo.
-2. Fork `li-555/ABCD-Quant-`, push the branch to your fork, and open a PR.
-3. Have the repo owner grant `Yung-Ting-Kai` write access.
+So the local Git credential store / osxkeychain / GCM was **not** switched to the
+permitted account — it is still serving the `Yung-Ting-Kai` token. The branch is
+fully committed locally (all 4 commits below) and ready to push the moment the
+correct credential is in place.
 
-Once access exists, the branch is already created locally, so simply run:
-```bash
-git push -u origin feat/roostoo-live-bot-v1
-```
+**Remedy (do this yourself in a terminal — do NOT paste a token into chat):**
+1. Erase the cached `github.com` credential so the next push re-prompts:
+   ```bash
+   printf "protocol=https\nhost=github.com\n" | git credential reject
+   # (or: `git config --global --unset credential.helper` then re-prompt once)
+   ```
+2. Authenticate as the **permitted** account (the one that has write access to
+   `li-555/ABCD-Quant-`), e.g. via `gh auth login` or the Git Credential
+   Manager pop-up, then:
+   ```bash
+   git push -u origin feat/roostoo-live-bot-v1
+   ```
+3. If the permitted account is a **different** GitHub user, an owner must add
+   that user as a collaborator (Write) on the repo, OR you fork the repo and
+   push the branch to your fork and open a PR.
+
+Everything is committed locally; no code changes are outstanding. Once the
+credential is fixed, the single `git push` above publishes the branch.
 
 ---
 
