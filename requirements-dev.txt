@@ -1,0 +1,6 @@
+# =============================================================================
+# Development / test dependencies.  NOT installed in the production image
+# (the Dockerfile installs only requirements.txt).  Used for `pytest -q`.
+# =============================================================================
+-r requirements.txt
+pytest==8.3.4

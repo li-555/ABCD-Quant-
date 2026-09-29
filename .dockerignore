@@ -1,6 +1,10 @@
 # =============================================================================
-# .gitignore — keep secrets, local state and caches out of the repo.
+# .dockerignore — keep the image lean and free of secrets / local state.
 # =============================================================================
+
+# Version control
+.git
+.gitignore
 
 # Python caches / build artifacts
 __pycache__/
@@ -14,20 +18,17 @@ pytest-cache-files-*/
 venv/
 env/
 
-# Secrets / local environment (NEVER commit these)
+# Secrets / local environment
 .env
 *.env
 
-# Local runtime state & logs (recreated at runtime; keep the dir via .gitkeep)
+# Local runtime state & logs (recreated inside the container)
 bot/logs/*
 !bot/logs/.gitkeep
 bot/state.json
 bot/KILL
 cache/
-
-# Generated outputs
 outputs/*
-!outputs/.gitkeep
 
 # OS / editor noise
 .DS_Store
@@ -36,3 +37,4 @@ Thumbs.db
 
 # Local workbench
 .workbuddy/
+*.md~

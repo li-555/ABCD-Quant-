@@ -1,7 +1,10 @@
-pandas
-numpy
-scipy
-statsmodels
-scikit-learn
-matplotlib
-pytest
+# =============================================================================
+# Runtime dependencies for the Roostoo live bot (v1).
+# Pinned with == to guarantee reproducible builds.  No plotting / data-download
+# libraries are required at runtime (matplotlib, yfinance, etc. are excluded).
+# Development / test dependencies live in requirements-dev.txt.
+# =============================================================================
+numpy==2.5.3
+pandas==3.0.6
+requests==2.32.5
+PyYAML==6.0.2

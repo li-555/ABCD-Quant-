@@ -1,98 +1,281 @@
-# ABCD-Quant-
+# ABCD-Quant — Roostoo Live Trading Bot (v1)
 
-A modular Python quantitative research project for alpha factor analysis and backtesting.
+A 7×24, AWS-deployable trading bot that ports the **validated** strategy in
+`research/backtest.py` to the Roostoo mock exchange for the Susquehanna ×
+Roostoo quant hackathon (HK / AU / IN). It runs unattended on a single
+`python -m bot.main` process, rebalances once per UTC day, and never requires a
+human in the loop.
 
-## Features
+> **Strategy v1 = research `backtest.py` variant A** — slow layer only, 30-minute
+> bars, daily rebalance at UTC 00:00, **crypto-only**, **long-only**. The bot is
+> a faithful, line-for-line port of that engine; it is *not* an "improved"
+> version. `research/backtest.py` is committed **unchanged**, and an offline test
+> (`tests/test_alignment.py`) proves the bot reproduces the research engine's
+> rebalance decisions to within float noise.
 
-- Load and clean market data (`quant_research/data.py`)
-- Compute example alpha factors (`quant_research/factors.py`):
-  - Momentum
-  - Mean reversion
-  - Volatility
-  - Volume-price correlation
-- Evaluate factor predictability (`quant_research/evaluation.py`):
-  - IC
-  - Rank IC
-  - Regression t-value / p-value / R²
-- Combine factors into trading signals (`quant_research/signals.py`)
-- Build simple long-short portfolios (`quant_research/portfolio.py`)
-- Backtest with transaction costs and slippage (`quant_research/backtest.py`):
-  - Returns
-  - Sharpe ratio
-  - Drawdown
-  - Turnover
-  - Benchmark comparison
-- Visualize equity curve, drawdown, factor performance, and factor correlations (`quant_research/visualization.py`)
-- Save experiment results and generate a report (`quant_research/reporting.py`)
-- Multi-strategy architecture (`quant_research/multi_strategy/`) with:
-  - Common strategy contract (`Strategy`, `StrategySignal`)
-  - MultiFactor + Technical strategy adapters (plus pair-trading placeholder extension point)
-  - Strategy combiner with explicit weight normalization/conflict policy/NaN policy
-  - Portfolio construction, basic risk limits, and execution simulator stages
+---
 
-## Project Structure
+## 1. Strategy overview (v1)
 
-- `/quant_research`: core library modules
-- `/quant_research/multi_strategy`: modular multi-strategy pipeline components
-- `/run_example.py`: runnable end-to-end example using synthetic data
-- `/tests/test_pipeline.py`: focused tests for core pipeline behavior
-- `/tests/test_multi_strategy.py`: tests for strategy contract, adapters, combiner, portfolio, risk, and execution
-- `/outputs`: generated outputs (charts, CSV, JSON, markdown report)
+Cross-sectional, long-only crypto rotation driven by the **slow signal layer**
+of the research strategy:
 
-## Installation
+| Component | Formula |
+| --- | --- |
+| Trend | `EMA(fast) / EMA(slow)` z-score over the slow window |
+| Cross-sectional momentum | rank-based momentum score |
+| Donchian position | price location within its N-day range |
+| Composite slow score | `S_slow = 0.4·trend + 0.4·mom + 0.2·don` |
+| Overheat penalty | halve exposure if `|z1| > 2.5` and same sign as `S_slow` |
+| Inverse-vol weights | `w_i ∝ |score_i| / σ_i`, normalised |
+| Breadth regime `m_l` | scale down when few assets trend up |
+| Vol target `g_vol` | `min(1, σ_target / portfolio_σ)` |
+| Drawdown scale `m_dd` | shrink on drawdown + hard circuit breaker |
+| Caps | single 0.35, cluster net 0.70 / gross 1.05, total gross 1.0 |
+| Trade filter | no-trade band, min-trade, min-hold 12h, trailing stop 1.5·σ, cooldown 3h |
+
+The **exchange is the single source of truth** for positions and prices. Each
+30-minute cycle the bot: fetches the latest closed 30m bars (Binance, with a
+recorded-Roostoo fallback), checks data freshness, reads balance + ticker,
+applies a price-sanity check (Roostoo vs Binance close), runs trailing stops,
+runs the daily rebalance (with midnight catch-up), optionally runs the activity
+guard, then writes the equity snapshot, heartbeat, and atomic state.
+
+---
+
+## 2. Project structure
+
+```
+ABCD-Quant-/
+├── bot/                      # the live bot (the deliverable)
+│   ├── main.py               # entrypoint: python -m bot.main
+│   ├── scheduler.py          # 7x24 loop, cycle orchestration
+│   ├── state.py              # atomic JSON state
+│   ├── logging_utils.py      # rotating logs + heartbeat
+│   ├── config/
+│   │   ├── settings.py       # Config dataclass + load_config (env overrides)
+│   │   ├── config.yaml       # all strategy/risk/execution params
+│   │   └── universe.yaml     # tradable coins (Binance symbol + Roostoo pair)
+│   ├── data/                 # Binance klines + recorded-Roostoo fallback
+│   ├── execution/            # RoostooClient (live) + PaperClient (dry-run)
+│   └── strategy/             # signals, portfolio, risk, activity_guard
+├── research/                 # research/backtest.py — COPIED UNCHANGED
+├── tests/                    # offline pytest suite (pytest -q)
+│   └── test_alignment.py     # bot == research parity proof (§7.4)
+├── docs/
+│   └── ROOSTOO_API.md        # verified Roostoo v3 API reference
+├── scripts/                  # READ-ONLY helper scripts (no order placement)
+│   ├── check_heartbeat.py    # liveness probe (mirrors Docker HEALTHCHECK)
+│   ├── show_state.py         # print bot/state.json summary
+│   └── validate_config.py    # verify config == v1 contract
+├── Dockerfile                # python:3.11-slim, non-root, UTC, HEALTHCHECK
+├── .dockerignore
+├── .gitignore
+├── .env.example
+├── requirements.txt          # pinned runtime deps (no matplotlib/yfinance)
+├── requirements-dev.txt      # pytest (test only)
+└── README.md                 # this file
+```
+
+---
+
+## 3. Quickstart
+
+### 3.1 Paper mode (local, no real orders)
 
 ```bash
-pip install -r requirements.txt
+python -m venv .venv && . .venv/Scripts/activate     # or your managed venv
+pip install -r requirements-dev.txt
+cp .env.example .env          # leave LIVE=0 (paper mode)
+python -m bot.main --once     # one cycle (smoke test)
+python -m bot.main            # 7x24 loop (paper)
 ```
 
-## Run Example
+In paper mode the bot uses `PaperClient`, which fills orders against the latest
+Binance close. **No real orders are ever sent.**
+
+### 3.2 Docker
 
 ```bash
-python run_example.py
+docker build -t abcd-quant-bot .
+# paper
+docker run -d --name bot -e LIVE=0 --env-file .env abcd-quant-bot
+# watch health
+docker inspect --format '{{.State.Health.Status}}' bot
 ```
 
-This generates:
+### 3.3 EC2 (production)
 
-- `outputs/daily_results.csv`
-- `outputs/factor_summary.csv`
-- `outputs/performance.json`
-- `outputs/equity_drawdown.png`
-- `outputs/factor_performance.png`
-- `outputs/factor_correlation.png`
-- `outputs/report.md`
+1. Launch an Ubuntu 22.04 t3.micro (or similar) in the competition region.
+2. Install Docker, clone this repo, `docker build -t abcd-quant-bot .`.
+3. **Paper first** to prove the pipeline end-to-end against the mock gateway:
+   ```bash
+   docker run -d --restart unless-stopped --name bot-paper \
+     -e LIVE=0 --env-file .env abcd-quant-bot
+   docker logs -f bot-paper      # confirm cycles run, heartbeat written
+   ```
+4. Once paper is healthy for ≥24h, switch to **live** (real orders):
+   ```bash
+   docker stop bot-paper && docker rm bot-paper
+   docker run -d --restart unless-stopped --name bot-live \
+     -e LIVE=1 \
+     -e ROOSTOO_API_KEY=<key> -e ROOSTOO_API_SECRET=<secret> \
+     -e ROOSTOO_BASE_URL=https://mock-api.roostoo.com \
+     abcd-quant-bot
+   docker logs -f bot-live
+   ```
 
-## Multi-Strategy Pipeline Example
+> The `restart unless-stopped` policy + the Docker `HEALTHCHECK` (heartbeat
+> fresher than 45 min) keep the bot alive across reboots and crashes.
 
-Architecture:
+---
 
-```text
-Data -> Features -> [MultiFactor, PairTrading(placeholder), Technical] -> StrategyCombiner -> Portfolio -> Risk -> Execution
-```
+## 4. Configuration (`bot/config/config.yaml`)
 
-Run a minimal in-memory orchestration example:
+All strategy, risk and execution parameters live in `config.yaml`; **secrets are
+never stored there** (env only). A subset:
 
-```python
-from quant_research.multi_strategy import run_multistrategy_example
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `bar_min` | 30 | bar length (30m klines) |
+| `rebalance_hour_utc` | 0 | daily rebalance fires after UTC 00:00 |
+| `n_long` | 6 | max long positions |
+| `hold_rank_long` | 10 | incumbent-protection rank |
+| `gate_thr` / `entry_thr` | 0.2 / 0.2 | eligibility / entry thresholds |
+| `sigma_target` | 0.04 | daily portfolio vol target |
+| `single_long` | 0.35 | per-asset long cap |
+| `coin_cap` | 0.70 | coin-cluster net exposure cap |
+| `gross_mult` | 1.5 | cluster gross cap = `gross_mult·net` |
+| `dd_scale` / `dd_hard` | 0.10 / 0.12 | drawdown scale / breaker trigger |
+| `dd_window_h` | 336 | 14-day peak window (hours) |
+| `breaker_h` | 12 | circuit-breaker duration (hours) |
+| `band_abs` / `band_rel` | 0.08 / 0.30 | no-trade band |
+| `min_trade` | 0.005 | minimum traded weight |
+| `min_hold_h` | 12 | minimum holding time (hours) |
+| `stop_long` | 1.5 | trailing-stop distance (daily σ) |
+| `cool_h` | 3 | cooldown after a stop (hours) |
+| `allow_short` | false | **long-only (hard rule)** |
+| `max_gross` | 1.0 | total gross exposure cap |
+| `history_days` | 60 | warm-up klines on startup |
+| `staleness_minutes` | 90 | skip cycle if feed is stale |
+| `max_daily_trades` | 200 | safety cap on fills/day |
+| `rate_limit_seconds` | 1.0 | min spacing between API calls |
+| `activity_enabled` / `min_daily_trades` | true / 2 | compliance activity guard |
 
-result = run_multistrategy_example()
-print(result["trades"].head())
-```
+`scripts/validate_config.py` verifies the live config still matches the v1
+contract — run it in CI / before deploy.
 
-Notes:
-- Strategy outputs use wide pandas DataFrames (`date` index, instrument columns).
-- Legacy per-symbol `dict[str, Series]` engines are adapted via `dict_series_to_wide`.
-- NaNs are not silently converted to zero in the core signal path unless `nan_policy="ignore"` is configured in `StrategyCombiner`.
+---
 
-## Run Tests
+## 5. Risk controls
+
+* **Long-only, spot 1x** — no leverage, no shorts, no stocks, no derivatives.
+* **Exposure caps** — single 0.35, cluster net 0.70 / gross 1.05, total 1.0.
+* **Drawdown scaling + circuit breaker** — `m_dd` shrinks exposure on drawdown; a
+  hard breaker forces the minimum scale for `breaker_h` hours after a deep drawdown.
+* **Trailing stops** — 1.5 daily σ trailing stop with a 3h cooldown before
+  re-entry.
+* **No-trade band / min-hold / min-trade** — avoids churn and over-trading.
+* **Data safety** — cycles are **skipped** (never traded) on stale feeds, bad
+  balances, missing prices, or Roostoo/Binance price deviations > 2%.
+* **Activity guard** — ensures a minimal, strategy-aligned number of fills per day
+  so the account is not flagged as dormant, while never inflating risk.
+* **Kill switch** — touching `bot/KILL` puts the bot in close-only mode
+  (stops rebalancing; lets stops/activity finish) without killing the process.
+
+---
+
+## 6. Logs & monitoring
+
+* `bot/logs/heartbeat.json` — written every cycle (`time`, `equity`,
+  `trades_today`, `last_rebalance_date`, `live`). The Docker `HEALTHCHECK` and
+  `scripts/check_heartbeat.py` read this.
+* `bot/logs/equity.csv` — per-cycle equity / cash / position snapshot.
+* `bot/logs/*.log` — rotating structured logs.
+* `bot/state.json` — atomic persistent state (positions, entry times, cooldowns,
+  breaker, peak, daily trade counter). Inspected with `scripts/show_state.py`.
+* `bot/main.py --once` — single-cycle smoke test (safe in any mode).
+
+---
+
+## 7. Compliance
+
+This bot is built for the hackathon rules and **never** does any of the
+prohibited behaviours:
+
+* Spot 1x **LONG only** (`allow_short=false`; the `/v6/short_*` endpoints are not
+  implemented).
+* **No stocks, no leverage, no shorts.**
+* **No HFT, no market-making, no arbitrage** — one rebalance per UTC day plus
+  trailing-stop liquidations; order pacing respects `rate_limit_seconds`.
+* **No manual-ordering scripts** — all orders are generated by the strategy; the
+  only external scripts are read-only (`scripts/`).
+* **Secrets via env vars only** — `ROOSTOO_API_KEY` / `ROOSTOO_API_SECRET` are
+  never written to logs or the repo.
+* **Activity guard** keeps the account active within the rules.
+
+---
+
+## 8. Honest research overview
+
+`research/backtest.py` is the source of truth and is committed **unchanged**.
+The live `bot/strategy/portfolio.py` is a faithful re-implementation of its
+rebalance block; `tests/test_alignment.py` replays the research trade log and
+asserts the bot's target weights match to within `1e-6`.
+
+**Synthetic validation harness** (deterministic, `seed=7`, 90 days of
+random-walk crypto, 30m bars, v1 params, 5 bps maker / 10 bps taker / 2 bps
+slip):
+
+| Metric | Value |
+| --- | --- |
+| Total return | **+1.55%** over ~71 sample days |
+| Daily-annualised Sharpe | **0.60** |
+| Max drawdown | **−5.10%** |
+| Trades | 229 |
+| Final equity | 101,546 (from 100,000) |
+
+> These numbers come from the **synthetic** test harness, not the competition's
+> real market data, and are meant to demonstrate that the engine is
+> well-behaved (positive edge, contained drawdown, no blow-ups). They are **not**
+> a forecast of live performance. Real backtest results were produced by the
+> research team on historical Binance data and should be cited from that work.
+
+---
+
+## 9. Limitations
+
+* **Data dependency** — the bot needs 30m Binance klines (with a recorded-Roostoo
+  fallback) and a live Roostoo ticker/balance. If both are unavailable the cycle
+  is skipped; it does **not** trade on stale or missing data.
+* **Mock gateway only** — tuned against `https://mock-api.roostoo.com`; the same
+  code path drives paper and live modes.
+* **Single-process, single-region** — one container, one API key. No
+  failover/replication (out of scope for v1).
+* **No live-fill reconciliation** — the bot treats the exchange as truth each
+  cycle; partial fills are handled by the order manager, but there is no separate
+  post-trade reconciliation service.
+* **Strategy is fixed at v1** — per the brief, parameters were **not** tuned or
+  extended to stocks/short/leverage/arbitrage.
+
+---
+
+## 10. Testing
 
 ```bash
+pip install -r requirements-dev.txt
 pytest -q
 ```
 
-## Extend the Project
+The suite is fully **offline** (synthetic data, paper client, no network). The
+key test is `tests/test_alignment.py`, which proves the bot's portfolio
+construction equals the research backtest. `scripts/validate_config.py` adds a
+config-contract regression check.
 
-- Add custom factors in `quant_research/factors.py`
-- Adjust signal weighting in `quant_research/signals.py`
-- Swap portfolio logic in `quant_research/portfolio.py`
-- Add advanced cost models in `quant_research/backtest.py`
-- Add additional reporting/plots in `quant_research/reporting.py` and `quant_research/visualization.py`
+---
+
+## 11. API reference
+
+See [`docs/ROOSTOO_API.md`](docs/ROOSTOO_API.md) for the verified Roostoo v3 API
+(endpoints, HMAC-SHA256 signing, timestamp rules, response schemas) used by
+`bot/execution/`.
