@@ -1,0 +1,43 @@
+# =============================================================================
+# Trading universe.  Each entry maps a coin to:
+#   binance_symbol : used to fetch 30m klines from Binance ({COIN}USDT)
+#   roostoo_pair   : the pair name on the Roostoo mock exchange ({COIN}/USD)
+#
+# The bot intersects this list with the tradable pairs returned by Roostoo's
+# /v3/exchangeInfo at startup; any coin missing on Roostoo is dropped for that
+# run with a WARNING and excluded from the universe.
+# =============================================================================
+coins:
+  - coin: BTC
+    binance_symbol: BTCUSDT
+    roostoo_pair: BTC/USD
+  - coin: ETH
+    binance_symbol: ETHUSDT
+    roostoo_pair: ETH/USD
+  - coin: SOL
+    binance_symbol: SOLUSDT
+    roostoo_pair: SOL/USD
+  - coin: ZEC
+    binance_symbol: ZECUSDT
+    roostoo_pair: ZEC/USD
+  - coin: XRP
+    binance_symbol: XRPUSDT
+    roostoo_pair: XRP/USD
+  - coin: NEAR
+    binance_symbol: NEARUSDT
+    roostoo_pair: NEAR/USD
+  - coin: SUI
+    binance_symbol: SUIUSDT
+    roostoo_pair: SUI/USD
+  - coin: WLD
+    binance_symbol: WLDUSDT
+    roostoo_pair: WLD/USD
+  - coin: UNI
+    binance_symbol: UNIUSDT
+    roostoo_pair: UNI/USD
+  - coin: DOGE
+    binance_symbol: DOGEUSDT
+    roostoo_pair: DOGE/USD
+  - coin: BNB
+    binance_symbol: BNBUSDT
+    roostoo_pair: BNB/USD
