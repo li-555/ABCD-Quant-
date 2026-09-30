@@ -33,6 +33,8 @@ import yaml
 
 from bot.config.settings import Config
 from bot.strategy.signals import build_signals
+from bot.strategy.factors import enabled as factors_enabled
+from bot.data.market_bars import load_market_grid
 from bot.strategy.portfolio import compute_target_weights, TargetDiag
 from bot.strategy.risk import update_extremes, stop_hits, peak_update
 from bot.strategy.activity_guard import propose_activity_trades
@@ -86,6 +88,9 @@ def ts_to_bar(ts: Optional[pd.Timestamp], grid0: pd.Timestamp,
 
 
 def bar_to_iso(bar: int, grid0: pd.Timestamp, bar_min: int) -> str:
+    # ts_to_bar(None) is a sentinel, not a real date (would overflow pandas).
+    if bar <= -10 ** 9:
+        return ""
     return (grid0 + pd.Timedelta(minutes=bar_min) * bar).isoformat()
 
 
@@ -226,7 +231,9 @@ def _log_decision(loggers: Loggers, now, universe, sig_row, w, tgt, real_mask,
         })
     loggers.log_decision({
         "time": now.isoformat(),
-        "equity": equity,
+        "equity": equity + loggers.cfg.cash_reserve_usd,
+        "strategy_equity": equity,
+        "cash_reserve_usd": loggers.cfg.cash_reserve_usd,
         "peak": state.peak,
         "breaker_until": state.breaker_until,
         "m_l": diag.m_l, "g_vol": diag.g_vol, "m_dd": diag.m_dd,
@@ -245,7 +252,15 @@ def cycle(cfg: Config, client, state: State, loggers: Loggers,
     pairs = [pair_of(u["coin"]) for u in universe]
 
     # 1) data
-    grid = fetch_price_grid(universe, cfg)
+    volume = None
+    if factors_enabled(cfg):
+        bars = load_market_grid(universe, cfg)
+        grid, volume = bars["close"], bars["volume"]
+        if grid.empty or not np.isfinite(grid.iloc[-1].to_numpy()).all():
+            logger.error("incomplete latest OHLCV closes; skipping cycle")
+            return
+    else:
+        grid = fetch_price_grid(universe, cfg)
     if grid is None or grid.shape[0] < MIN_BARS:
         logger.error("insufficient price history; skipping cycle")
         return
@@ -264,7 +279,7 @@ def cycle(cfg: Config, client, state: State, loggers: Loggers,
              for i, u in enumerate(universe)})
 
     # 2) signals (closed bars only)
-    sig = build_signals(grid, cfg)
+    sig = build_signals(grid, cfg, volume=volume)
     t = grid.shape[0] - 1
     sig_row = {k: sig[k].iloc[t].values.astype(float)
                for k in ("S", "S_slow", "trend", "sig_d")}
@@ -297,7 +312,11 @@ def cycle(cfg: Config, client, state: State, loggers: Loggers,
     if not valid_price.any():
         logger.error("no usable prices; skipping cycle")
         return
-    equity = cash + float(np.nansum(qty * price_arr))
+    total_equity = cash + float(np.nansum(qty * price_arr))
+    equity = total_equity - cfg.cash_reserve_usd
+    if equity <= 0:
+        logger.error("no positive strategy capital after cash reserve; skipping cycle")
+        return
     w = np.zeros(n)
     nz = valid_price & (equity > 0)
     w[nz] = (qty[nz] * price_arr[nz]) / equity
@@ -363,7 +382,7 @@ def cycle(cfg: Config, client, state: State, loggers: Loggers,
     # 9) equity peak (14-day window) + snapshot
     peak = state.peak
     rows = loggers.equity.recent_equity(int(cfg.dd_window_h / 24))
-    vals = [float(r["equity"]) for r in rows if r.get("equity")]
+    vals = [float(r["equity"]) - cfg.cash_reserve_usd for r in rows if r.get("equity")]
     if vals:
         peak = max(peak, max(vals), equity)
     else:
@@ -371,7 +390,7 @@ def cycle(cfg: Config, client, state: State, loggers: Loggers,
     state.peak = peak
     pos_values = {u["coin"]: float(qty[i] * price_arr[i])
                   for i, u in enumerate(universe) if np.isfinite(price_arr[i])}
-    loggers.equity.write(now, equity, cash, pos_values)
+    loggers.equity.write(now, total_equity, cash, pos_values)
 
     # 10) daily trade counter + heartbeat + state
     if state.day_trade_date != today_str:
@@ -381,7 +400,9 @@ def cycle(cfg: Config, client, state: State, loggers: Loggers,
     state.last_heartbeat = now.isoformat()
     state.save(cfg.state_file)
     write_heartbeat(cfg.heartbeat_file, {
-        "time": now.isoformat(), "equity": equity, "trades_today": state.day_trade_count,
+        "time": now.isoformat(), "equity": total_equity,
+        "strategy_equity": equity, "cash_reserve_usd": cfg.cash_reserve_usd,
+        "trades_today": state.day_trade_count,
         "last_rebalance_date": state.last_rebalance_date, "live": cfg.live,
     })
 
