@@ -1,0 +1,15 @@
+# Initial total capital 100,000; reserve a fixed 15,000, manage remaining 85,000.
+# The reserve stays nominally fixed; this is NOT daily 85% rebalancing.
+# Paper evaluation. Set LIVE=0 explicitly when running.
+paper_start_equity: 100000.0
+cash_reserve_usd: 15000.0
+factor_volume_weight: 0.2
+factor_rs_weight: 0.0
+factor_mr_weight: 0.0
+factor_session_weight: 0.0
+activity_enabled: false
+live: false
+state_file: bot/cash85_state.json
+log_dir: bot/cash85_logs
+equity_csv: bot/cash85_logs/equity.csv
+heartbeat_file: bot/cash85_logs/heartbeat.json

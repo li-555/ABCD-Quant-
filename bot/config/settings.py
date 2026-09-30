@@ -9,6 +9,7 @@ through environment variables only.
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass, field, fields
 from typing import List
 
@@ -39,6 +40,18 @@ class Config:
     w_trend: float = 0.4
     w_mom: float = 0.4
     w_don: float = 0.2
+
+    # Optional candidates. Zero preserves v1 exactly; research decides promotion.
+    factor_rs_weight: float = 0.0
+    factor_mr_weight: float = 0.0
+    factor_volume_weight: float = 0.0
+    factor_session_weight: float = 0.0
+    factor_benchmark: str = "BTC"
+    factor_rs_h: float = 120
+    factor_mr_h: float = 24
+    factor_volume_h: float = 24
+    factor_session_days: int = 20
+    factor_session_split_utc: int = 8
 
     # ---- risk / sizing ---------------------------------------------------
     sigma_target: float = 0.04        # daily portfolio vol target
@@ -97,6 +110,7 @@ class Config:
     # ---- runtime / paths -------------------------------------------------
     live: bool = False
     paper_start_equity: float = 100_000.0
+    cash_reserve_usd: float = 0.0    # fixed cash excluded from strategy capital
     kill_file: str = "bot/KILL"
     heartbeat_file: str = "bot/logs/heartbeat.json"
     log_dir: str = "bot/logs"
@@ -123,9 +137,27 @@ class Config:
     def __post_init__(self) -> None:
         # ---- type / range sanity checks -----------------------------------
         errors: List[str] = []
+        if not math.isfinite(self.cash_reserve_usd) or self.cash_reserve_usd < 0:
+            errors.append("cash_reserve_usd must be finite and nonnegative")
+        if not math.isfinite(self.paper_start_equity) or self.paper_start_equity <= self.cash_reserve_usd:
+            errors.append("paper_start_equity must exceed cash_reserve_usd")
+        weights = [self.factor_rs_weight, self.factor_mr_weight,
+                   self.factor_volume_weight, self.factor_session_weight]
+        if any(not math.isfinite(w) or not 0 <= w <= 1 for w in weights) or sum(weights) > 1:
+            errors.append("optional factor weights must be finite, nonnegative and sum <= 1")
+        for name in ("factor_rs_h", "factor_mr_h", "factor_volume_h"):
+            if not math.isfinite(getattr(self, name)) or getattr(self, name) <= 0:
+                errors.append(f"{name} must be finite and positive")
+        if not isinstance(self.factor_session_days, int) or self.factor_session_days < 2:
+            errors.append("factor_session_days must be an integer >= 2")
+        if (not isinstance(self.factor_session_split_utc, int) or
+                not 1 <= self.factor_session_split_utc <= 23):
+            errors.append("factor_session_split_utc must be an integer in [1, 23]")
+        if any(weights) and self.bar_min not in (15, 30, 60):
+            errors.append("optional factors support 15, 30 or 60 minute bars")
         if self.bar_min <= 0:
             errors.append("bar_min must be > 0")
-        if not (0 < self.bars_per_hour <= 60):
+        if self.bar_min > 0 and not (0 < self.bars_per_hour <= 60):
             errors.append("bar_min implies an implausible bars_per_hour")
         if self.n_long < 1:
             errors.append("n_long must be >= 1")

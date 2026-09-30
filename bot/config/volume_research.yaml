@@ -1,0 +1,12 @@
+# Retained by research/factor_protocol.json; unspecified fields use Config defaults.
+# Paper evaluation only. LIVE environment variable still overrides live: false.
+factor_volume_weight: 0.2
+factor_rs_weight: 0.0
+factor_mr_weight: 0.0
+factor_session_weight: 0.0
+activity_enabled: false
+live: false
+state_file: bot/volume_state.json
+log_dir: bot/volume_logs
+equity_csv: bot/volume_logs/equity.csv
+heartbeat_file: bot/volume_logs/heartbeat.json
