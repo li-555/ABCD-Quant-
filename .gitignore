@@ -22,6 +22,10 @@ env/
 bot/logs/*
 !bot/logs/.gitkeep
 bot/state.json
+bot/volume_state.json
+bot/volume_logs/
+bot/cash85_state.json
+bot/cash85_logs/
 bot/KILL
 cache/
 

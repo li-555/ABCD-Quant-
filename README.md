@@ -1,5 +1,9 @@
 # ABCD-Quant — Roostoo Live Trading Bot (v1)
 
+Optional factors and historical screening results:
+[docs/FACTOR_STUDY.md](docs/FACTOR_STUDY.md). The retained volume paper configuration
+is `bot/config/volume_research.yaml`; the default config remains the v1 baseline.
+
 A 7×24, AWS-deployable trading bot that ports the **validated** strategy in
 `research/backtest.py` to the Roostoo mock exchange for the Susquehanna ×
 Roostoo quant hackathon (HK / AU / IN). It runs unattended on a single
@@ -283,3 +287,11 @@ config-contract regression check.
 See [`docs/ROOSTOO_API.md`](docs/ROOSTOO_API.md) for the verified Roostoo v3 API
 (endpoints, HMAC-SHA256 signing, timestamp rules, response schemas) used by
 `bot/execution/`.
+
+## 12. Optional factors and drawdown study
+
+See [factor selection](docs/FACTOR_STUDY.md) and
+[drawdown diagnosis / cash reserve](docs/DRAWDOWN_STUDY.md) for the historical
+protocol, rejected candidates, costs, limitations, and paper-only configurations.
+New features default to off. The cash-reserve example reduces capital at risk;
+it does not guarantee a drawdown ceiling or higher returns in every period.
