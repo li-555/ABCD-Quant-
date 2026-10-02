@@ -70,6 +70,3 @@ if __name__ == "__main__":
     print("\nChecking account balance:")
     balance_res = get_balance()
     print(balance_res)
-
-order = place_order(pair="BTC/USD", side="BUY", quantity=0.05, order_type="MARKET")
-print("Order Response:", order)
