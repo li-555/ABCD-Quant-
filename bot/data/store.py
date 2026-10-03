@@ -52,6 +52,6 @@ def snapshot_to_grid(series: pd.Series, bar_min: int) -> pd.Series:
     if series is None or series.empty:
         return pd.Series(dtype=float)
     freq = f"{bar_min}min"
-    resampled = series.resample(freq, label="right", closed="right").last().ffill()
-    resampled = resampled.bfill()
+    # Do not fabricate prices for empty buckets or fill from the future.
+    resampled = series.resample(freq, label="right", closed="right").last()
     return resampled
