@@ -34,6 +34,8 @@ def combine_factors_to_signal(
             c = _combine(frame)
             c["date"] = dt
             grouped.append(c)
+        if not grouped:
+            return pd.DataFrame()
         out = pd.concat(grouped, ignore_index=True)
     else:
         out = _combine(out)
