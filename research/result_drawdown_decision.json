@@ -1,0 +1,9 @@
+{
+  "selected": null,
+  "eligible": [],
+  "protocol_sha256": "ec1714dcf90bada3ce389bfa0dadcca5c69ace6830c2e445191a2f0aff7cb62e",
+  "paper_candidate": null,
+  "reason": "no promotion under predeclared gates",
+  "unseen_check_days": 28,
+  "live_approved": false
+}
