@@ -40,10 +40,11 @@ class LegacyMultiFactorEngine:
             .reset_index()
             .rename(columns={"level_0": "date", "level_1": "asset"})
             .sort_values(["asset", "date"])
+            .reset_index(drop=True)
         )
         stacked["ret_1d"] = stacked.groupby("asset")["close"].pct_change()
-        stacked["ret_fwd_1d"] = stacked.groupby("asset")["close"].shift(-1) / stacked["close"] - 1.0
-        factored = compute_example_factors(stacked.dropna(subset=["ret_1d", "ret_fwd_1d"]))
+        # Live signal generation must not filter rows using future-return labels.
+        factored = compute_example_factors(stacked.dropna(subset=["ret_1d"]), require_forward_label=False)
 
         factor_cols = [
             "factor_momentum",
