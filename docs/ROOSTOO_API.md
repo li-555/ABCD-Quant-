@@ -1,5 +1,15 @@
 # Roostoo Public Trading API (v3) — Reference
 
+## Integration update (2026-10-03)
+
+The current test-account balance response uses `SpotWallet` and `MarginWallet`.
+The client aliases **only SpotWallet** to the legacy `Wallet` field. Ticker is a
+timestamp-only public endpoint. Reads may retry; placing an order never retries
+automatically because a timeout may conceal a successful fill. This supersedes
+the generic retry description below. No historical OHLCV endpoint is documented.
+See [platform integration](ROOSTOO_INTEGRATION.md) for account profiles, external
+signals, data limitations, execution gates and 100 passing offline tests.
+
 This document records the Roostoo REST API surface that `bot/execution/` talks
 to. It is extracted verbatim from the official
 [`Roostoo-API-Documents`](https://github.com/roostoo/Roostoo-API-Documents)
