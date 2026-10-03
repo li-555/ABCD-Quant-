@@ -30,7 +30,9 @@ from bot.execution.client import ExchangeClient, SignedMixin, ApiLogHook
 class RoostooClient(SignedMixin, ExchangeClient):
     """Concrete Roostoo client.  See ``docs/Roostoo-API.md`` for the contract."""
 
-    def __init__(self, cfg: Config, log_api: Optional[ApiLogHook] = None) -> None:
+    def __init__(self, cfg: Config, log_api: Optional[ApiLogHook] = None,
+                 *, read_only: bool = False) -> None:
+        self.read_only = read_only
         SignedMixin.__init__(self, cfg, log_api)
         # ExchangeClient is an ABC; SignedMixin provides the plumbing.
 
@@ -48,12 +50,18 @@ class RoostooClient(SignedMixin, ExchangeClient):
         params: Dict[str, Any] = {"timestamp": self._now_ts()}
         if pair is not None:
             params["pair"] = pair
-        return self._request("GET", "/v3/ticker", params, signed=True)
+        return self._request("GET", "/v3/ticker", params, signed=False)
 
     def get_balance(self) -> Dict[str, Any]:
         """GET /v3/balance.  Returns ``{"Success", "Wallet": {coin: {Free, Lock}}}``."""
         params = {"timestamp": self._now_ts()}
-        return self._request("GET", "/v3/balance", params, signed=True)
+        result = self._request("GET", "/v3/balance", params, signed=True)
+        if result.get("Success"):
+            wallet = result.get("SpotWallet", result.get("Wallet"))
+            if not isinstance(wallet, dict):
+                return {"Success": False, "ErrMsg": "Missing spot wallet in balance response"}
+            result = {**result, "Wallet": wallet}
+        return result
 
     def get_pending_count(self) -> Dict[str, Any]:
         """GET /v3/pending_count.  Returns ``{"Success", "TotalPending", "OrderPairs"}``."""
@@ -72,6 +80,8 @@ class RoostooClient(SignedMixin, ExchangeClient):
         Returns ``{"Success", "OrderDetail": {...}}`` with ``OrderDetail.Status``
         of ``FILLED`` / ``PENDING`` / ``CANCELED``.
         """
+        if self.read_only:
+            raise RuntimeError("read-only Roostoo client cannot place orders")
         params: Dict[str, Any] = {
             "timestamp": self._now_ts(),
             "pair": str(pair),
@@ -83,7 +93,8 @@ class RoostooClient(SignedMixin, ExchangeClient):
             if price is None:
                 raise ValueError("LIMIT order requires a price")
             params["price"] = _fmt_num(price)
-        return self._request("POST", "/v3/place_order", params, signed=True)
+        # No idempotency key is documented. A timeout may already be a fill.
+        return self._request("POST", "/v3/place_order", params, signed=True, max_retries=1)
 
     def query_order(self, order_id: Optional[str] = None,
                     pair: Optional[str] = None,
@@ -109,6 +120,8 @@ class RoostooClient(SignedMixin, ExchangeClient):
         Only pending orders can be cancelled.  ``order_id`` and ``pair`` are
         mutually exclusive (or both omitted to cancel all pending).
         """
+        if self.read_only:
+            raise RuntimeError("read-only Roostoo client cannot cancel orders")
         params: Dict[str, Any] = {"timestamp": self._now_ts()}
         if order_id is not None:
             params["order_id"] = str(order_id)
