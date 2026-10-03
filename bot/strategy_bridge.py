@@ -157,8 +157,11 @@ class StrategyBridge:
             if db.execute("SELECT 1 FROM batches WHERE id=?", (batch,)).fetchone():
                 return {**result, "status": "duplicate"}
             pending = self.client.get_pending_count()
-            if not pending.get("Success") or pending.get("TotalPending") != 0:
-                raise RuntimeError("pending orders unknown/nonzero; refusing another batch")
+            total_pending = pending.get("TotalPending")
+            if total_pending is None:
+                raise RuntimeError("pending order state unknown; refusing another batch")
+            if int(total_pending) != 0:
+                raise RuntimeError("pending orders nonzero; refusing another batch")
             db.execute("INSERT INTO batches VALUES (?, 'running', '')", (batch,))
             db.commit()  # persist BEFORE any order is sent
             try:
