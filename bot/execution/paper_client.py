@@ -58,6 +58,7 @@ class PaperClient(ExchangeClient):
         self._pairs = list(pairs or [])
         self._next_id = 1
         self._pending: Dict[int, Dict[str, Any]] = {}
+        self._orders: Dict[int, Dict[str, Any]] = {}
 
     # -- test / scheduler hook ----------------------------------------------
     def set_market_prices(self, prices: Dict[str, float]) -> None:
@@ -110,13 +111,14 @@ class PaperClient(ExchangeClient):
             "Pair": pair, "OrderID": oid, "Side": side, "Type": type_,
             "Price": float(price), "Quantity": float(quantity), "Status": "PENDING",
         }
+        self._orders[oid] = dict(self._pending[oid])
         return {"Success": True, "ErrMsg": "", "OrderDetail": dict(self._pending[oid])}
 
     def query_order(self, order_id: Optional[str] = None,
                     pair: Optional[str] = None,
                     pending_only: Optional[bool] = None) -> Dict[str, Any]:
         matched: List[Dict[str, Any]] = []
-        for o in self._pending.values():
+        for o in self._orders.values():
             if order_id is not None and str(o["OrderID"]) != str(order_id):
                 continue
             if pair is not None and o["Pair"] != pair:
@@ -137,6 +139,8 @@ class PaperClient(ExchangeClient):
                 continue
             if pair is not None and o["Pair"] != pair:
                 continue
+            o["Status"] = "CANCELED"
+            self._orders[oid] = dict(o)
             canceled.append(oid)
             del self._pending[oid]
         return {"Success": True, "ErrMsg": "", "CanceledList": canceled}
@@ -171,4 +175,5 @@ class PaperClient(ExchangeClient):
         }
         if self._log_api:
             self._log_api(pair, 200, 0.0, True)
+        self._orders[oid] = dict(detail)
         return {"Success": True, "ErrMsg": "", "OrderDetail": detail}

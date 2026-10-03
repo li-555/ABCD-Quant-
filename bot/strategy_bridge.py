@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from bot.config.settings import Config
+from bot.config.settings import live_orders_enabled
 from quant_research.multi_strategy.strategy import StrategySignal
 
 
@@ -137,8 +138,11 @@ class StrategyBridge:
                   "status": "preview"}
         if not execute:
             return result
-        if not self.cfg.live or getattr(self.client, "read_only", False):
-            raise RuntimeError("execution requires LIVE=1 and an order-enabled client")
+        if not live_orders_enabled(self.cfg) or getattr(self.client, "read_only", False):
+            raise RuntimeError(
+                "execution requires LIVE=1, ROOSTOO_LIVE_TRADING=true, valid ROOSTOO_LIVE_CONFIRM, "
+                "and an order-enabled client"
+            )
         if Path(self.cfg.kill_file).exists():
             return {**result, "status": "kill_file"}
         if context.exchange_info.get("IsRunning") is not True:
@@ -225,4 +229,48 @@ class StrategyBridge:
                     # Avoid loops if an exchange returns FILLED without changing the book.
                     if not float(detail.get("FilledQuantity", 0)) > 0:
                         raise RuntimeError("missing fill quantity; reconcile before retry")
+                    self._reconcile_after_fill(side, coin, pair, amount, cash, qty[coin], detail)
         return sent
+
+    def _reconcile_after_fill(self, side, coin, pair, requested_amount, pre_cash, pre_qty, detail):
+        order_id = detail.get("OrderID")
+        if order_id is None:
+            raise RuntimeError("missing order id in fill; reconcile before retry")
+        queried = self.client.query_order(order_id=str(order_id))
+        if not queried.get("Success"):
+            raise RuntimeError("post-trade query failed; reconcile before retry")
+        matched = queried.get("OrderMatched") or []
+        if not matched:
+            raise RuntimeError("post-trade query missing order; reconcile before retry")
+        item = matched[0]
+        status = str(item.get("Status", detail.get("Status", ""))).upper()
+        if status != "FILLED":
+            raise RuntimeError("post-trade order not filled; reconcile before retry")
+        filled = float(item.get("FilledQuantity", detail.get("FilledQuantity", 0)) or 0)
+        price = float(item.get("FilledAverPrice", detail.get("FilledAverPrice", 0)) or 0)
+        fee = float(item.get("CommissionChargeValue", detail.get("CommissionChargeValue", 0)) or 0)
+        if not (math.isfinite(filled) and math.isfinite(price) and math.isfinite(fee)):
+            raise RuntimeError("post-trade fill contains non-finite values; reconcile before retry")
+        if filled <= 0 or filled + 1e-12 < float(requested_amount):
+            raise RuntimeError("post-trade fill quantity mismatch; reconcile before retry")
+        if price <= 0 or fee < 0:
+            raise RuntimeError("post-trade fill price/fee mismatch; reconcile before retry")
+        remaining = float(item.get("Quantity", detail.get("Quantity", filled)) or filled) - filled
+        if remaining > 1e-8:
+            raise RuntimeError("post-trade order has remaining quantity; reconcile before retry")
+        fresh = self.client.get_balance()
+        if not fresh.get("Success"):
+            raise RuntimeError("post-trade balance refresh failed; reconcile before retry")
+        wallet = fresh.get("SpotWallet", fresh.get("Wallet", {}))
+        post_cash = float(wallet.get("USD", {}).get("Free", 0))
+        post_qty = float(wallet.get(coin, {}).get("Free", 0))
+        if side == "BUY":
+            if post_qty + 1e-12 < pre_qty + filled:
+                raise RuntimeError("post-trade buy quantity not reflected in wallet; reconcile before retry")
+            if post_cash > pre_cash + 1e-8:
+                raise RuntimeError("post-trade buy cash inconsistency; reconcile before retry")
+        else:
+            if post_qty > pre_qty - filled + 1e-8:
+                raise RuntimeError("post-trade sell quantity not reflected in wallet; reconcile before retry")
+            if post_cash + 1e-8 < pre_cash:
+                raise RuntimeError("post-trade sell cash inconsistency; reconcile before retry")

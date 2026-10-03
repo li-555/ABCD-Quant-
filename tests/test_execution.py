@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from bot.config.settings import Config
+from bot.config.settings import live_orders_enabled
 from bot.execution.roostoo_client import RoostooClient
 from bot.execution.paper_client import PaperClient
 from bot.execution.order_manager import (
@@ -95,6 +96,31 @@ def test_roostoo_success_false_returned():
     client._session = FakeSession(handler)
     resp = client.place_order("BTC/USD", "BUY", "MARKET", 0.01)
     assert resp.get("Success") is False
+
+
+def test_roostoo_request_error_never_leaks_secret():
+    cfg = Config()
+    cfg.roostoo_api_key = "K"
+    cfg.roostoo_api_secret = "VERY_SECRET_VALUE"
+
+    def handler(method, url, kw):
+        if url.endswith("/v3/serverTime"):
+            return 200, {"ServerTime": int(__import__("time").time() * 1000)}
+        raise RuntimeError("boom VERY_SECRET_VALUE")
+
+    client = _make_client(cfg)
+    client._session = FakeSession(handler)
+    resp = client.place_order("BTC/USD", "BUY", "MARKET", 0.01)
+    assert resp.get("Success") is False
+    assert "VERY_SECRET_VALUE" not in resp.get("ErrMsg", "")
+
+
+def test_live_orders_two_step_gate():
+    cfg = Config(live=True, roostoo_live_trading=True,
+                 roostoo_live_confirm="I_UNDERSTAND_AND_ACCEPT_LIVE_TRADING_RISK")
+    assert live_orders_enabled(cfg) is True
+    cfg.roostoo_live_confirm = "WRONG"
+    assert live_orders_enabled(cfg) is False
 
 
 def test_roostoo_read_retries_then_succeeds():

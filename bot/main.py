@@ -15,7 +15,7 @@ import argparse
 import logging
 import sys
 
-from bot.config.settings import load_config
+from bot.config.settings import load_config, live_orders_enabled
 from bot.state import State
 from bot.logging_utils import Loggers
 from bot.scheduler import cycle, run, load_universe
@@ -37,7 +37,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--strategy", help="external strategy module:ClassName; uses shared Roostoo data")
     p.add_argument("--check-connection", action="store_true", help="read-only Roostoo authentication check")
     p.add_argument("--account", choices=["test", "competition"])
-    p.add_argument("--execute", action="store_true", help="external strategy orders; also requires LIVE=1")
+    p.add_argument("--execute", action="store_true",
+                   help="external strategy orders; requires live gates in env")
     p.add_argument("--pairs", nargs="+", default=["BTC/USD", "ETH/USD"])
     return p
 
@@ -75,12 +76,28 @@ def main(argv=None) -> int:
     loggers.set_coins([u["coin"] for u in universe])
     state = State.load(cfg.state_file)
 
+    pairs = [u["roostoo_pair"] for u in universe]
+    orders_live = live_orders_enabled(cfg)
+    LOG.info(
+        "startup mode=%s account=%s pairs=%s max_order_frac=%.4f max_daily_trades=%d cash_reserve_usd=%.2f",
+        "live" if cfg.live else "paper",
+        cfg.roostoo_account,
+        ",".join(pairs),
+        cfg.max_order_frac,
+        cfg.max_daily_trades,
+        cfg.cash_reserve_usd,
+    )
     if cfg.live:
-        LOG.info("LIVE trading enabled")
-        client = RoostooClient(cfg, log_api=loggers.api_hook)
+        if orders_live:
+            LOG.warning("LIVE order placement is ENABLED")
+        else:
+            LOG.warning(
+                "LIVE data mode only: order placement disabled unless "
+                "ROOSTOO_LIVE_TRADING=true and ROOSTOO_LIVE_CONFIRM matches"
+            )
+        client = RoostooClient(cfg, log_api=loggers.api_hook, read_only=not orders_live)
     else:
         LOG.info("paper (dry-run) mode: no real orders will be placed")
-        pairs = [u["roostoo_pair"] for u in universe]
         client = PaperClient(cfg, pairs=pairs, log_api=loggers.api_hook)
 
     data_client = (RoostooClient(cfg, read_only=True)

@@ -18,6 +18,15 @@ from quant_research.multi_strategy.strategy import StrategySignal
 from tests.test_execution import FakeSession
 
 
+def live_cfg(**kwargs):
+    return Config(
+        live=True,
+        roostoo_live_trading=True,
+        roostoo_live_confirm="I_UNDERSTAND_AND_ACCEPT_LIVE_TRADING_RISK",
+        **kwargs,
+    )
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(SignedMixin, 'sync_time', lambda self: None)
@@ -123,8 +132,22 @@ def test_preview_and_live_gate(tmp_path):
         bridge.submit_signal(signal,ctx,execute=True)
 
 
+def test_reconcile_mismatch_blocks_batch(tmp_path):
+    cfg = live_cfg()
+    paper, ctx = make_context(cfg)
+    signal = TargetWeights('s', ctx.asof, pd.Series({'BTC': .2}))
+    bridge = StrategyBridge(cfg, paper, ['BTC', 'ETH'], tmp_path / 'orders.db')
+    paper.query_order = lambda *a, **k: {'Success': True, 'OrderMatched': [{
+        'Status': 'FILLED', 'FilledQuantity': 0, 'FilledAverPrice': 100, 'CommissionChargeValue': 0,
+    }]}
+    with pytest.raises(RuntimeError, match='post-trade'):
+        bridge.submit_signal(signal, ctx, execute=True)
+    with sqlite3.connect(tmp_path / 'orders.db') as db:
+        assert db.execute("SELECT status FROM batches").fetchone()[0] == 'attention'
+
+
 def test_actual_paper_fills_reserve_and_durable_dedup(tmp_path):
-    cfg=Config(live=True,cash_reserve_usd=15000)
+    cfg=live_cfg(cash_reserve_usd=15000)
     paper,ctx=make_context(cfg)
     journal=tmp_path/'orders.db'
     signal=TargetWeights('s',ctx.asof,pd.Series({'BTC':.35,'ETH':.35}))
@@ -138,7 +161,7 @@ def test_actual_paper_fills_reserve_and_durable_dedup(tmp_path):
 
 
 def test_ambiguous_order_blocks_later_batches(tmp_path):
-    cfg=Config(live=True)
+    cfg=live_cfg()
     paper,ctx=make_context(cfg)
     paper.place_order=lambda *a,**k: {'Success':False,'UnknownExecution':True}
     bridge=StrategyBridge(cfg,paper,['BTC','ETH'],tmp_path/'orders.db')
@@ -182,7 +205,7 @@ def test_collector_runs_before_v1_warmup(monkeypatch,tmp_path):
 
 
 def test_pending_orders_block_new_batch(tmp_path):
-    cfg=Config(live=True)
+    cfg=live_cfg()
     paper,ctx=make_context(cfg)
     paper.place_order('ETH/USD','BUY','LIMIT',1,1)
     with pytest.raises(RuntimeError,match='pending orders'):
@@ -192,7 +215,7 @@ def test_pending_orders_block_new_batch(tmp_path):
 
 
 def test_daily_cap_is_shared_between_batches(tmp_path):
-    cfg=Config(live=True,max_daily_trades=1)
+    cfg=live_cfg(max_daily_trades=1)
     paper,ctx=make_context(cfg)
     bridge=StrategyBridge(cfg,paper,['BTC','ETH'],tmp_path/'orders.db')
     bridge.submit_signal(TargetWeights('s',ctx.asof,pd.Series({'BTC':.1})),ctx,execute=True)
