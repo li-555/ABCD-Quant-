@@ -1,0 +1,22 @@
+{
+  "base_commit": "e906d57d6efac22df777c3874cdaf50262256a8d",
+  "selection_periods": {"2024": ["2024-01-01", "2025-01-01"], "2025": ["2025-01-01", "2026-01-01"]},
+  "reused_diagnostic": ["2026-01-01", "2026-09-01"],
+  "new_short_check": ["2026-09-01", "2026-09-29"],
+  "candidates": {
+    "volume_10": {"factor_volume_weight": 0.1},
+    "volume_05": {"factor_volume_weight": 0.05},
+    "cap_60": {"coin_cap": 0.6, "single_long": 0.3},
+    "cap_50": {"coin_cap": 0.5, "single_long": 0.25},
+    "vol_target_03": {"sigma_target": 0.03},
+    "defensive_scaling": {"dd_scale": 0.08, "dd_hard": 0.08, "min_scale": 0.3, "regime_floor": 0.3},
+    "stop_12": {"stop_long": 1.2},
+    "volume_10_cap_60": {"factor_volume_weight": 0.1, "coin_cap": 0.6, "single_long": 0.3}
+  },
+  "cost_multipliers": [1.0, 2.0],
+  "minimum_drawdown_reduction": 0.01,
+  "minimum_return_retention": 0.85,
+  "maximum_sharpe_loss": 0.1,
+  "selection": "Use only 2024 and 2025 at both cost levels. A candidate must reduce MDD by at least 1 percentage point versus Volume20, not exceed original v1 MDD, retain at least 85% of Volume20 net return if positive (otherwise not worse), and lose at most 0.1 Sharpe. Rank qualifiers by their worst Sharpe across these four tests. Replay only the winner on reused 2026 Jan-Aug and new 28-day September check. Never select a replacement using those outcomes. Keep paper-only unless reused diagnostics also meet the same gates; September is a short stability check, not sufficient evidence of robustness.",
+  "limitations": "2024-2026 Aug have already been examined during factor selection. All parameter comparisons on those dates are retrospective. September prices were downloaded earlier but no strategy results had been evaluated. The initial experiment excluded activity guard and is not exact full scheduler/exchange replay."
+}
