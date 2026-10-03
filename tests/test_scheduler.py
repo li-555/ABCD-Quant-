@@ -81,3 +81,42 @@ def test_missed_midnight_catchup(env):
     cycle(cfg, client, state, loggers, universe)
     today = pd.Timestamp.now(tz="UTC").floor("1D").strftime("%Y-%m-%d")
     assert state.last_rebalance_date == today
+
+
+def test_optional_volume_reaches_live_signals(env, grid, monkeypatch):
+    cfg, universe, client, state, loggers = env
+    cfg.factor_volume_weight = .2
+    volume = grid * 0 + 100
+    monkeypatch.setattr(sched, "load_market_grid", lambda u, c: {"close": grid, "volume": volume})
+    original = sched.build_signals
+    seen = []
+    def capture(prices, config, volume=None):
+        seen.append(volume)
+        return original(prices, config, volume)
+    monkeypatch.setattr(sched, "build_signals", capture)
+    cycle(cfg, client, state, loggers, universe)
+    assert seen[0] is volume
+    assert state.last_rebalance_date
+
+
+def test_missing_breaker_is_not_converted_to_timestamp():
+    assert sched.bar_to_iso(-10**9, pd.Timestamp("2024-01-01", tz="UTC"), 30) == ""
+
+
+def test_cash_reserve_reaches_order_budget_and_logs_total_equity(env, monkeypatch):
+    import json
+    cfg, universe, client, state, loggers = env
+    cfg.cash_reserve_usd = 15000
+    cfg.activity_enabled = False
+    original = sched.compute_target
+    seen = []
+    def capture(*args, **kwargs):
+        seen.append(args[7])  # strategy equity, after reserve
+        return original(*args, **kwargs)
+    monkeypatch.setattr(sched, "compute_target", capture)
+    cycle(cfg, client, state, loggers, universe)
+    assert seen == [85000]
+    hb = json.loads(open(cfg.heartbeat_file).read())
+    assert hb["equity"] == 100000
+    assert hb["strategy_equity"] == 85000
+    assert client.cash >= 15000
