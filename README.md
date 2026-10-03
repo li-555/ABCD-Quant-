@@ -1,5 +1,8 @@
 # ABCD-Quant — Roostoo Live Trading Bot (v1)
 
+Roostoo connection and external strategies: [integration guide](docs/ROOSTOO_INTEGRATION.md).
+Use `python -m bot.main --check-connection --account test` for a read-only check.
+
 Optional factors and historical screening results:
 [docs/FACTOR_STUDY.md](docs/FACTOR_STUDY.md). The retained volume paper configuration
 is `bot/config/volume_research.yaml`; the default config remains the v1 baseline.
