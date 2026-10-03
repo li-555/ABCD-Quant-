@@ -97,7 +97,7 @@ def test_roostoo_success_false_returned():
     assert resp.get("Success") is False
 
 
-def test_roostoo_retries_then_succeeds():
+def test_roostoo_read_retries_then_succeeds():
     cfg = Config()
     cfg.roostoo_api_key = "K"
     cfg.roostoo_api_secret = "S"
@@ -114,7 +114,7 @@ def test_roostoo_retries_then_succeeds():
 
     client = _make_client(cfg)
     client._session = FakeSession(handler)
-    resp = client.place_order("BTC/USD", "BUY", "MARKET", 0.01)
+    resp = client.query_order(pair="BTC/USD")
     assert resp.get("Success") is True
     assert attempts["n"] == 3
 
