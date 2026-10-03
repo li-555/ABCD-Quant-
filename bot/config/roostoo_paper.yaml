@@ -1,0 +1,12 @@
+# Collect Roostoo sampled close history; simulate v1 orders locally.
+# Start collecting in advance: v1 needs at least its longest indicator window.
+# Ticker observations are not historical OHLCV; Volume stays disabled.
+market_data_source: roostoo
+live: false
+activity_enabled: false
+factor_volume_weight: 0.0
+data_dir: cache/roostoo_paper
+state_file: cache/roostoo_paper/state.json
+log_dir: cache/roostoo_paper/logs
+equity_csv: cache/roostoo_paper/logs/equity.csv
+heartbeat_file: cache/roostoo_paper/logs/heartbeat.json
