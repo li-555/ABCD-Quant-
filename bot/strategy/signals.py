@@ -28,7 +28,8 @@ def _H(bar_min: int, hours: float) -> int:
     return max(2, int(round(hours * bph)))
 
 
-def build_signals(P: pd.DataFrame, cfg: Config) -> Dict[str, pd.DataFrame]:
+def build_signals(P: pd.DataFrame, cfg: Config,
+                  volume: pd.DataFrame | None = None) -> Dict[str, pd.DataFrame]:
     """Compute the slow-layer signals for a price frame.
 
     Parameters
@@ -85,6 +86,9 @@ def build_signals(P: pd.DataFrame, cfg: Config) -> Dict[str, pd.DataFrame]:
 
     # Variant A: no fast layer, no reversal term -> S is just S_slow.
     S = S_slow.copy()
+    from bot.strategy.factors import enabled, build_factors, blend
+    if enabled(cfg):
+        S = blend(S, cfg, build_factors(P, cfg, volume))
 
     sig_d = sig * np.sqrt(24 * bph)
 
