@@ -1,0 +1,21 @@
+{
+  "base_commit": "1c735347f0931501188663279947fed90f6c061f",
+  "bar_min": 30,
+  "data_start": "2023-12-01",
+  "development": ["2024-01-01", "2025-01-01"],
+  "validation": ["2025-01-01", "2026-01-01"],
+  "holdout": ["2026-01-01", "2026-09-01"],
+  "candidates": {
+    "relative_strength": {"factor_rs_weight": 0.2},
+    "mean_reversion": {"factor_mr_weight": 0.2},
+    "volume": {"factor_volume_weight": 0.2},
+    "session": {"factor_session_weight": 0.2},
+    "combined": {"factor_rs_weight": 0.05, "factor_mr_weight": 0.05, "factor_volume_weight": 0.05, "factor_session_weight": 0.05}
+  },
+  "minimum_sharpe_gain": 0.1,
+  "maximum_extra_drawdown": 0.02,
+  "cost_multipliers": [1.0, 2.0],
+  "selection": "Fixed formulas/windows/weights. Validation: higher net return, Sharpe gain >= 0.1, MDD no more than 2 percentage points worse at both cost levels; positive net excess return in each half-year at normal costs. Select the qualifying candidate with highest normal-cost Sharpe. Only that candidate enters holdout, with the same return/Sharpe/MDD gates at both costs. No replacement after a holdout failure. Otherwise all weights remain zero.",
+  "execution": "Signals from completed bar, fills at following bar open with adverse slippage; all taker fees. Same bot portfolio/risk functions for baseline and candidates; cash/quantity ledger; no margin. Daily UTC rebalance and close-based stops. Activity guard excluded from factor research and must be tested separately before live rollout.",
+  "limitations": "Fixed present-day 11-coin universe has survivorship/selection bias; Binance historical fills cannot validate Roostoo liquidity, minimum lots, latency or execution reliability. Historical holdout is not a prospective experiment."
+}
