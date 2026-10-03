@@ -34,11 +34,30 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--once", action="store_true",
                    help="run a single cycle and exit (smoke test)")
     p.add_argument("--log-level", default="INFO")
+    p.add_argument("--strategy", help="external strategy module:ClassName; uses shared Roostoo data")
+    p.add_argument("--check-connection", action="store_true", help="read-only Roostoo authentication check")
+    p.add_argument("--account", choices=["test", "competition"])
+    p.add_argument("--execute", action="store_true", help="external strategy orders; also requires LIVE=1")
+    p.add_argument("--pairs", nargs="+", default=["BTC/USD", "ETH/USD"])
     return p
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    if args.strategy or args.check_connection:
+        from bot.platform import main as platform_main
+        forwarded = ["--config", args.config, "--pairs", *args.pairs]
+        if args.strategy:
+            forwarded += ["--strategy", args.strategy]
+        if args.account:
+            forwarded += ["--account", args.account]
+        for enabled, flag in [(args.check_connection, "--check-connection"),
+                              (args.once, "--once"), (args.execute, "--execute")]:
+            if enabled:
+                forwarded.append(flag)
+        return platform_main(forwarded)
+    if args.execute or args.account:
+        raise ValueError("--execute/--account require --strategy or --check-connection; v1 uses environment")
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -64,13 +83,18 @@ def main(argv=None) -> int:
         pairs = [u["roostoo_pair"] for u in universe]
         client = PaperClient(cfg, pairs=pairs, log_api=loggers.api_hook)
 
+    data_client = (RoostooClient(cfg, read_only=True)
+                   if not cfg.live and cfg.market_data_source == 'roostoo' else None)
     try:
         if args.once:
-            cycle(cfg, client, state, loggers, universe)
+            cycle(cfg, client, state, loggers, universe, data_client=data_client)
         else:
-            run(cfg, client, state, loggers, universe, immediate=True)
+            run(cfg, client, state, loggers, universe, immediate=True, data_client=data_client)
     except KeyboardInterrupt:
         LOG.info("interrupted; shutting down")
+    finally:
+        if data_client is not None:
+            data_client._session.close()
     return 0
 
 
