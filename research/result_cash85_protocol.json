@@ -1,0 +1,24 @@
+{
+  "initial_total": 100000,
+  "fixed_cash_reserve": 15000,
+  "strategy_initial_capital": 85000,
+  "periods": {
+    "2024": [
+      "2024-01-01",
+      "2025-01-01"
+    ],
+    "2025": [
+      "2025-01-01",
+      "2026-01-01"
+    ],
+    "reused_diagnostic": [
+      "2026-01-01",
+      "2026-09-01"
+    ],
+    "new_short_check": [
+      "2026-09-01",
+      "2026-09-29"
+    ]
+  },
+  "note": "Scenario added after eight risk parameter candidates failed. Historical comparisons are exploratory; no claim of fresh holdout or alpha improvement. No interest on idle cash."
+}
