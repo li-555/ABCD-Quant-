@@ -12,8 +12,10 @@ import time
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from bot.config.settings import Config, load_config, load_credentials
+from bot.data.market_bars import load_market_grid
 from bot.execution.roostoo_client import RoostooClient
 from bot.strategy_bridge import MarketContext, StrategyBridge
 from quant_research.multi_strategy.strategy import StrategySignal
@@ -30,6 +32,25 @@ class RoostooData:
         if len(set(pairs)) != len(pairs) or any(
                 not p.endswith('/USD') or not p[:-4].isalnum() for p in pairs):
             raise ValueError('unique COIN/USD pairs required')
+
+        universe_path = Path(__file__).resolve().parent / 'config' / 'universe.yaml'
+        with open(universe_path, 'r', encoding='utf-8') as fh:
+            raw = yaml.safe_load(fh) or {}
+        items = raw.get('coins', []) if isinstance(raw, dict) else raw
+
+        by_pair = {
+            item['roostoo_pair']: item
+            for item in items
+            if 'roostoo_pair' in item and 'binance_symbol' in item and 'coin' in item
+        }
+
+        missing = [pair for pair in self.pairs if pair not in by_pair]
+        if missing:
+            raise ValueError(
+                f'pairs missing from bot/config/universe.yaml: {missing}'
+            )
+
+        self.universe = [by_pair[pair] for pair in self.pairs]
 
     def snapshot(self):
         ticker = self.client.get_ticker()
@@ -69,7 +90,21 @@ class RoostooData:
         close = close.resample(f'{self.cfg.bar_min}min', label='right', closed='right').last()
         close = close.loc[close.index <= stamp.floor(f'{self.cfg.bar_min}min')]
         close.index.name, close.columns.name = 'date', 'asset'
-        data = {'close': close}
+
+        # Multi-factor strategies require real historical OHLCV.
+        # Binance is the market-data source; Roostoo remains the execution
+        # and account source. load_market_grid() uses the local cache and
+        # incrementally refreshes closed bars.
+        bars = load_market_grid(self.universe, self.cfg)
+        data = {
+            name: frame.reindex(columns=cols)
+            for name, frame in bars.items()
+        }
+
+        # Keep the sampled Roostoo close for diagnostics only. It must not
+        # masquerade as historical OHLCV.
+        data['roostoo_sampled_close'] = close
+
         for name, field in [('ticker_last','LastPrice'), ('bid','MaxBid'), ('ask','MinAsk'),
                             ('change_24h','Change'), ('coin_trade_value','CoinTradeValue'),
                             ('unit_trade_value','UnitTradeValue')]:

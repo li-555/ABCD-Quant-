@@ -15,8 +15,8 @@ from .strategy import Strategy, StrategySignal, dict_series_to_wide
 def _extract_close_volume(data: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, pd.DataFrame]:
     close = data.get("close")
     volume = data.get("volume")
-    if close is None or volume is None:
-        raise ValueError("data must provide wide 'close' and 'volume' DataFrames")
+    if close is None or volume is None or close.empty or volume.empty:
+        return pd.DataFrame(), pd.DataFrame()
     return close.sort_index(), volume.sort_index()
 
 
@@ -53,12 +53,22 @@ class LegacyMultiFactorEngine:
             "factor_volume_price_corr",
         ]
         sig = combine_factors_to_signal(factored, factor_cols)
+
+        if sig.empty or not {'date', 'asset', 'signal'}.issubset(sig.columns):
+            return pd.DataFrame(dtype=float)
+
+
+
+
+
         return sig.pivot(index="date", columns="asset", values="signal").sort_index().astype(float)
 
 
 @dataclass
 class MultiFactorStrategy(Strategy):
     name: str = "multifactor"
+    required_fields: tuple[str, ...] = ("close", "volume")
+    min_bars: int = 22
     prefer_zoo_engine: bool = True
     _legacy_engine: Any = field(default_factory=LegacyMultiFactorEngine)
 
@@ -78,6 +88,9 @@ class MultiFactorStrategy(Strategy):
             values = engine.compute_signal(data)
         else:
             values = dict_series_to_wide(engine.generate(data), fill_missing=False)
+
+        if values is None or values.empty:
+            return None
 
         return StrategySignal(
             name=self.name,
