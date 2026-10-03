@@ -92,7 +92,8 @@ class SignedMixin:
                                   timeout=10)
             if r.status_code == 200:
                 server = float(r.json().get("ServerTime", 0))
-                self._time_offset_ms = server - time.time() * 1000
+                if server > 0:
+                    self._time_offset_ms = server - time.time() * 1000
         except Exception:
             # Keep the previous offset; we will retry on the next cycle.
             pass
@@ -167,5 +168,6 @@ class SignedMixin:
                     delay *= 2
                     continue
                 # Last attempt: return a structured failure so callers can skip.
-                return {"Success": False, "ErrMsg": f"request failed: {e}"}
+                return {"Success": False, "ErrMsg": f"request failed: {type(e).__name__}",
+                        "UnknownExecution": endpoint == "/v3/place_order"}
         return {"Success": False, "ErrMsg": "request failed after retries"}
