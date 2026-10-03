@@ -87,6 +87,7 @@ class Config:
 
     # ---- data ------------------------------------------------------------
     history_days: int = 60            # klines to warm up on startup
+    market_data_source: str = "binance"  # or recorded Roostoo observations
     max_history_days: int = 90
     price_deviation_pct: float = 2.0  # Binance vs Roostoo price sanity check
     staleness_minutes: int = 90       # skip cycle if newest bar older than this
@@ -120,8 +121,9 @@ class Config:
     data_dir: str = "cache"
 
     # ---- secrets (env only, never logged / stored) ------------------------
-    roostoo_api_key: str = ""
-    roostoo_api_secret: str = ""
+    roostoo_account: str = "test"
+    roostoo_api_key: str = field(default="", repr=False)
+    roostoo_api_secret: str = field(default="", repr=False)
     roostoo_base_url: str = "https://mock-api.roostoo.com"
 
     # ---- derived helpers --------------------------------------------------
@@ -137,6 +139,10 @@ class Config:
     def __post_init__(self) -> None:
         # ---- type / range sanity checks -----------------------------------
         errors: List[str] = []
+        if self.roostoo_account not in ("test", "competition"):
+            errors.append("roostoo_account must be test or competition")
+        if self.market_data_source not in ("binance", "roostoo"):
+            errors.append("market_data_source must be binance or roostoo")
         if not math.isfinite(self.cash_reserve_usd) or self.cash_reserve_usd < 0:
             errors.append("cash_reserve_usd must be finite and nonnegative")
         if not math.isfinite(self.paper_start_equity) or self.paper_start_equity <= self.cash_reserve_usd:
@@ -175,6 +181,10 @@ class Config:
             errors.append("history_days out of range")
         if self.max_daily_trades < 1:
             errors.append("max_daily_trades must be >= 1")
+        if not math.isfinite(self.max_order_frac) or not 0 < self.max_order_frac <= 1:
+            errors.append("max_order_frac must be in (0, 1]")
+        if any(not math.isfinite(v) or v < 0 for v in (self.taker_bps, self.slip_bps, self.maker_bps)):
+            errors.append("fees/slippage must be finite and nonnegative")
         if self.gross_mult <= 0:
             errors.append("gross_mult must be > 0")
         if abs(self.w_trend + self.w_mom + self.w_don - 1.0) > 1e-6:
@@ -183,7 +193,7 @@ class Config:
             raise ValueError("Invalid configuration:\n  - " + "\n  - ".join(errors))
 
 
-def load_config(path: str = "bot/config/config.yaml") -> Config:
+def load_config(path: str = "bot/config/config.yaml", *, account: str | None = None) -> Config:
     """Load ``Config`` from a YAML file and environment overrides.
 
     Environment variables (when set) override the YAML values for the runtime
@@ -198,6 +208,8 @@ def load_config(path: str = "bot/config/config.yaml") -> Config:
     known = {f.name for f in fields(Config)}
     kwargs = {}
     for key, value in raw.items():
+        if key in ("roostoo_api_key", "roostoo_api_secret") and value:
+            raise ValueError("Roostoo credentials must come from environment variables")
         if key in known:
             kwargs[key] = value
         else:
@@ -210,8 +222,7 @@ def load_config(path: str = "bot/config/config.yaml") -> Config:
     live_env = os.environ.get("LIVE")
     if live_env is not None:
         cfg.live = str(live_env).strip().lower() in ("1", "true", "yes", "on")
-    cfg.roostoo_api_key = os.environ.get("ROOSTOO_API_KEY", cfg.roostoo_api_key)
-    cfg.roostoo_api_secret = os.environ.get("ROOSTOO_API_SECRET", cfg.roostoo_api_secret)
+    load_credentials(cfg, account)
     base = os.environ.get("ROOSTOO_BASE_URL")
     if base:
         cfg.roostoo_base_url = base
@@ -220,4 +231,23 @@ def load_config(path: str = "bot/config/config.yaml") -> Config:
         raise RuntimeError(
             "LIVE=1 requires ROOSTOO_API_KEY and ROOSTOO_API_SECRET to be set"
         )
+    return cfg
+
+
+def load_credentials(cfg: Config, account: str | None = None) -> Config:
+    """Select one credential pair; never mix test and competition credentials.
+
+    Generic names remain a backwards-compatible option only when no profile
+    is explicitly selected and neither profile-specific variable is present.
+    """
+    explicit = account is not None or "ROOSTOO_ACCOUNT" in os.environ
+    cfg.roostoo_account = account or os.environ.get("ROOSTOO_ACCOUNT", cfg.roostoo_account)
+    if cfg.roostoo_account not in ("test", "competition"):
+        raise ValueError("ROOSTOO_ACCOUNT must be test or competition")
+    prefix = "ROOSTOO_" + cfg.roostoo_account.upper()
+    key, secret = os.environ.get(prefix + "_API_KEY", ""), os.environ.get(prefix + "_API_SECRET", "")
+    if not explicit and cfg.roostoo_account == "test" and not key and not secret:
+        key = os.environ.get("ROOSTOO_API_KEY", "")
+        secret = os.environ.get("ROOSTOO_API_SECRET", "")
+    cfg.roostoo_api_key, cfg.roostoo_api_secret = key, secret
     return cfg
