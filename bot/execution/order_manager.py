@@ -142,19 +142,22 @@ def execute_intent(client: ExchangeClient, intent: OrderIntent,
             summary["orders"].append({"skipped": True, "err": "below MiniOrder"})
             continue
 
-        if intent.aggressive:
-            resp = client.place_order(pair, intent.side, "MARKET", qty)
-        else:
-            lim = _limit_price(intent.side, ticker.get(pair), last, price_prec)
-            resp = client.place_order(pair, intent.side, "LIMIT", qty, lim)
-            detail = (resp.get("OrderDetail") or {}) if resp.get("Success") else {}
-            if detail.get("Status") == "PENDING":
-                # grace window, then cancel + cross with MARKET
-                time.sleep(LIMIT_GRACE_SECONDS)
-                oid = detail.get("OrderID")
-                if oid is not None:
-                    client.cancel_order(order_id=oid)
+        try:
+            if intent.aggressive:
                 resp = client.place_order(pair, intent.side, "MARKET", qty)
+            else:
+                lim = _limit_price(intent.side, ticker.get(pair), last, price_prec)
+                resp = client.place_order(pair, intent.side, "LIMIT", qty, lim)
+                detail = (resp.get("OrderDetail") or {}) if resp.get("Success") else {}
+                if detail.get("Status") == "PENDING":
+                    # grace window, then cancel + cross with MARKET
+                    time.sleep(LIMIT_GRACE_SECONDS)
+                    oid = detail.get("OrderID")
+                    if oid is not None:
+                        client.cancel_order(order_id=oid)
+                    resp = client.place_order(pair, intent.side, "MARKET", qty)
+        except Exception as exc:  # noqa: BLE001 - keep cycle alive on order errors
+            return {"ok": False, "pair": pair, "err": f"order execution failed: {type(exc).__name__}"}
         _record_order(resp, intent, qty, log_order)
         detail = resp.get("OrderDetail") or {}
         fq = float(detail.get("FilledQuantity") or 0.0)

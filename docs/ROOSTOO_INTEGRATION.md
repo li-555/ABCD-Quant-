@@ -96,7 +96,7 @@ result = run_strategy(MyStrategy(), ["BTC/USD", "ETH/USD"])
 
 ## 执行与恢复
 
-默认只返回计划。实际平台执行同时要求 `LIVE=1` 与 `--execute`（Python 接口 `execute=True`）。本次没有开启这些开关。Bridge 使用单币/总仓位上限、最小调仓阈值、现金预留、可用余额、交易精度、最低订单金额和单笔金额上限。仅使用 MARKET 路径，逐笔成交后重新读取账户，先卖后买；不会调用旧的 LIMIT 取消后立即全量重下路径。
+默认只返回计划。实际平台执行同时要求 `LIVE=1`、`ROOSTOO_LIVE_TRADING=true`、`ROOSTOO_LIVE_CONFIRM=I_UNDERSTAND_AND_ACCEPT_LIVE_TRADING_RISK` 与 `--execute`（Python 接口 `execute=True`）。本次没有开启这些开关。Bridge 使用单币/总仓位上限、最小调仓阈值、现金预留、可用余额、交易精度、最低订单金额和单笔金额上限。仅使用 MARKET 路径，逐笔成交后会再次查询订单与余额做对账，先卖后买；不会调用旧的 LIMIT 取消后立即全量重下路径。
 
 这套通用 Bridge 的风控与 v1 完整交易规则不同，**不会自动给外部策略套用 v1 的趋势门槛、波动目标、止损和回撤熔断**。需要这些规则的策略应在输出目标权重前实现并验证；不要把 v1 历史绩效直接归因给新策略或新执行器。
 

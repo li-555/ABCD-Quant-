@@ -2,7 +2,8 @@
 
 python -m bot.platform --check-connection
 python -m bot.platform --strategy bot.platform:TickerMomentumStrategy --once
-The default creates plans only. Remote orders require both LIVE=1 and --execute.
+The default creates plans only. Remote orders require LIVE=1, live-trading gate
+env vars, and --execute.
 """
 import argparse
 import importlib
@@ -13,7 +14,7 @@ import time
 import numpy as np
 import pandas as pd
 
-from bot.config.settings import Config, load_config, load_credentials
+from bot.config.settings import Config, load_config, load_credentials, live_orders_enabled
 from bot.execution.roostoo_client import RoostooClient
 from bot.strategy_bridge import MarketContext, StrategyBridge
 from quant_research.multi_strategy.strategy import StrategySignal
@@ -127,9 +128,12 @@ def main(argv=None):
     cfg = load_config(args.config, account=args.account)
     if not cfg.roostoo_api_key or not cfg.roostoo_api_secret:
         parser.error('set the selected account API key/secret environment variables')
-    if args.execute and not cfg.live:
-        parser.error('--execute requires LIVE=1')
-    client = RoostooClient(cfg, read_only=not args.execute or args.check_connection)
+    if args.execute and not live_orders_enabled(cfg):
+        parser.error('--execute requires LIVE=1, ROOSTOO_LIVE_TRADING=true, and valid ROOSTOO_LIVE_CONFIRM')
+    client = RoostooClient(
+        cfg,
+        read_only=(not args.execute) or args.check_connection or not live_orders_enabled(cfg),
+    )
     try:
         if args.check_connection:
             result = check_connection(client)

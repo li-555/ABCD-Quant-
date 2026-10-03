@@ -110,6 +110,8 @@ class Config:
 
     # ---- runtime / paths -------------------------------------------------
     live: bool = False
+    roostoo_live_trading: bool = False
+    roostoo_live_confirm: str = ""
     paper_start_equity: float = 100_000.0
     cash_reserve_usd: float = 0.0    # fixed cash excluded from strategy capital
     kill_file: str = "bot/KILL"
@@ -199,7 +201,8 @@ def load_config(path: str = "bot/config/config.yaml", *, account: str | None = N
     Environment variables (when set) override the YAML values for the runtime
     flags and secrets:
 
-      * ``LIVE``  -> cfg.live (``1``/``true``/``yes`` enables live trading)
+      * ``LIVE``  -> cfg.live (enable exchange connectivity)
+      * ``ROOSTOO_LIVE_TRADING`` + ``ROOSTOO_LIVE_CONFIRM`` -> order placement
       * ``ROOSTOO_API_KEY`` / ``ROOSTOO_API_SECRET`` / ``ROOSTOO_BASE_URL``
     """
     with open(path, "r", encoding="utf-8") as fh:
@@ -222,6 +225,14 @@ def load_config(path: str = "bot/config/config.yaml", *, account: str | None = N
     live_env = os.environ.get("LIVE")
     if live_env is not None:
         cfg.live = str(live_env).strip().lower() in ("1", "true", "yes", "on")
+    live_trade_env = os.environ.get("ROOSTOO_LIVE_TRADING")
+    if live_trade_env is not None:
+        cfg.roostoo_live_trading = str(live_trade_env).strip().lower() in (
+            "1", "true", "yes", "on"
+        )
+    live_confirm = os.environ.get("ROOSTOO_LIVE_CONFIRM")
+    if live_confirm is not None:
+        cfg.roostoo_live_confirm = str(live_confirm)
     load_credentials(cfg, account)
     base = os.environ.get("ROOSTOO_BASE_URL")
     if base:
@@ -232,6 +243,15 @@ def load_config(path: str = "bot/config/config.yaml", *, account: str | None = N
             "LIVE=1 requires ROOSTOO_API_KEY and ROOSTOO_API_SECRET to be set"
         )
     return cfg
+
+
+def live_orders_enabled(cfg: Config) -> bool:
+    """Two-step live gate for order placement."""
+    return (
+        cfg.live
+        and cfg.roostoo_live_trading
+        and cfg.roostoo_live_confirm == "I_UNDERSTAND_AND_ACCEPT_LIVE_TRADING_RISK"
+    )
 
 
 def load_credentials(cfg: Config, account: str | None = None) -> Config:

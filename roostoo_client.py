@@ -3,13 +3,13 @@
 New code should use bot.platform.RoostooData and bot.strategy_bridge.StrategyBridge.
 Read-only unless LIVE=1 is explicitly set. Never create a client on import.
 """
-from bot.config.settings import load_config
+from bot.config.settings import load_config, live_orders_enabled
 from bot.execution.roostoo_client import RoostooClient
 
 
 def _client():
     cfg = load_config()
-    return RoostooClient(cfg, read_only=not cfg.live)
+    return RoostooClient(cfg, read_only=not live_orders_enabled(cfg))
 
 
 def _call(method, *args, **kwargs):
