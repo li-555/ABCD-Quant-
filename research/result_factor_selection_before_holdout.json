@@ -1,0 +1,7 @@
+{
+  "selected_before_holdout": "volume",
+  "eligible": [
+    "volume"
+  ],
+  "protocol_sha256": "df61bf811a33333e9906f6c452462c7508da4395216029911c7e56e59f5a8ec2"
+}
