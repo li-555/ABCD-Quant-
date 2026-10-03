@@ -246,14 +246,31 @@ def _log_decision(loggers: Loggers, now, universe, sig_row, w, tgt, real_mask,
 # one cycle
 # --------------------------------------------------------------------------- #
 def cycle(cfg: Config, client, state: State, loggers: Loggers,
-          universe: List[Dict[str, str]]) -> None:
+          universe: List[Dict[str, str]], data_client=None) -> None:
     now = utcnow()
     n = len(universe)
     pairs = [pair_of(u["coin"]) for u in universe]
 
+    # Collect platform observations even while strategy history is warming up.
+    platform_ticker = None
+    if not hasattr(client, "set_market_prices") or cfg.market_data_source == "roostoo":
+        platform_ticker = (data_client or client).get_ticker()
+        if not isinstance(platform_ticker, dict) or not platform_ticker.get("Success"):
+            logger.error("Roostoo ticker fetch failed; skipping cycle")
+            return
+        roostoo_prices.record_ticker(cfg, platform_ticker.get("Data", {}), now)
+
     # 1) data
     volume = None
-    if factors_enabled(cfg):
+    if cfg.market_data_source == "roostoo":
+        if cfg.factor_volume_weight:
+            logger.error("Roostoo ticker has no bar volume; disable Volume or supply OHLCV")
+            return
+        grid = roostoo_prices.load_recorded_grid(
+            {u["coin"]: u["binance_symbol"] for u in universe}, cfg)
+        grid = grid.reindex(columns=[u["coin"] for u in universe])
+        grid = grid.loc[grid.index <= now.floor(f"{cfg.bar_min}min")]
+    elif factors_enabled(cfg):
         bars = load_market_grid(universe, cfg)
         grid, volume = bars["close"], bars["volume"]
         if grid.empty or not np.isfinite(grid.iloc[-1].to_numpy()).all():
@@ -263,6 +280,9 @@ def cycle(cfg: Config, client, state: State, loggers: Loggers,
         grid = fetch_price_grid(universe, cfg)
     if grid is None or grid.shape[0] < MIN_BARS:
         logger.error("insufficient price history; skipping cycle")
+        return
+    if cfg.market_data_source == "roostoo" and not np.isfinite(grid.to_numpy()).all():
+        logger.error("recorded Roostoo history has gaps; continue collecting, skip trading")
         return
     last_bar = grid.index[-1]
     age_min = (now - last_bar).total_seconds() / 60.0
@@ -287,11 +307,11 @@ def cycle(cfg: Config, client, state: State, loggers: Loggers,
 
     # 3) exchange = truth
     bal = client.get_balance()
-    tk = client.get_ticker()
+    tk = platform_ticker if platform_ticker is not None else client.get_ticker()
     if not isinstance(bal, dict) or not bal.get("Success"):
         logger.error("balance fetch failed; skipping cycle")
         return
-    wallet = bal.get("Wallet", {})
+    wallet = bal.get("SpotWallet", bal.get("Wallet", {}))
     data = tk.get("Data", {}) if isinstance(tk, dict) else {}
     cash = float(wallet.get("USD", {}).get("Free", 0.0)) + \
         float(wallet.get("USD", {}).get("Lock", 0.0))
@@ -420,7 +440,7 @@ def next_sleep(bar_min: int, delay: int = 20) -> float:
 
 
 def run(cfg: Config, client, state: State, loggers: Loggers,
-        universe: List[Dict[str, str]], immediate: bool = True) -> None:
+        universe: List[Dict[str, str]], immediate: bool = True, data_client=None) -> None:
     """Run the 7x24 loop.  ``immediate`` runs one cycle right away on start."""
     logging.info("scheduler start (live=%s, universe=%d coins)",
                  cfg.live, len(universe))
@@ -428,9 +448,9 @@ def run(cfg: Config, client, state: State, loggers: Loggers,
     while True:
         try:
             if first and immediate:
-                cycle(cfg, client, state, loggers, universe)
+                cycle(cfg, client, state, loggers, universe, data_client=data_client)
             else:
-                cycle(cfg, client, state, loggers, universe)
+                cycle(cfg, client, state, loggers, universe, data_client=data_client)
         except Exception as e:  # noqa: BLE001 - never let the loop die
             logger.exception("cycle error: %s", e)
         first = False
