@@ -26,6 +26,8 @@ bot/volume_state.json
 bot/volume_logs/
 bot/cash85_state.json
 bot/cash85_logs/
+*.sqlite3
+*.sqlite3-journal
 bot/KILL
 cache/
 
